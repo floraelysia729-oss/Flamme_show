@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM-WIKI — 你的 AI 知识库管家</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <style>
+    /* ===================== RESET & VIEWPORT ===================== */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow-x: hidden; }
+    html {
+      scroll-snap-type: y mandatory; scroll-behavior: smooth; scroll-padding: 0;
+      scrollbar-width: none;
+    }
+    html::-webkit-scrollbar { display: none; }
+
+    :root {
+      --title-size: clamp(2.4rem, 5.2vh, 3.8rem);
+      --h2-size: clamp(1.8rem, 4.2vh, 2.9rem);
+      --h3-size: clamp(1.25rem, 3vh, 1.9rem);
+      --body-size: clamp(1.05rem, 2.1vh, 1.3rem);
+      --small-size: clamp(0.88rem, 1.6vh, 1.05rem);
+      --slide-padding: clamp(1.8rem, 4vh, 3.2rem);
+      --content-gap: clamp(0.7rem, 2vh, 1.6rem);
+      --flame-width: 50px;
+      /* palette */
+      --bg-dark: #212121;
+      --bg-paper: #faf3eb;
+      --bg-cream: #f5ece0;
+      --accent: #DD6236;
+      --accent2: #c85c5c;
+      --text-light: #f5ece0;
+      --text-dark: #2a2a2a;
+      --text-muted: #888;
+      /* fonts */
+      --font-display: 'Caveat', cursive;
+      --font-body: 'Kalam', cursive;
+      --font-hand: 'Patrick Hand', cursive;
+      /* animation */
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --duration: 0.6s;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-light);
+      font-family: var(--font-body);
+      cursor: default;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* ===================== NOISE OVERLAY ===================== */
+    .noise-overlay {
+      position: fixed; inset: 0; z-index: 9990;
+      pointer-events: none; opacity: 0.035; mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat; background-size: 200px 200px;
+    }
+
+    /* ===================== FLAME BORDERS ===================== */
+    .flame-border {
+      position: fixed; top: 0; width: var(--flame-width); height: 100vh;
+      z-index: 100; pointer-events: none;
+    }
+    .flame-border-left { left: 0; }
+    .flame-border-right { right: 0; }
+    .flame-border canvas { display: block; width: 100%; height: 100%; }
+
+    /* ===================== PROGRESS BAR & NAV ===================== */
+    .progress-bar {
+      position: fixed; top: 0; left: var(--flame-width); right: var(--flame-width);
+      height: 3px; background: var(--accent); z-index: 9999; transition: width 0.4s ease;
+    }
+    .nav-dots {
+      position: fixed; right: calc(var(--flame-width) + 14px); top: 50%; transform: translateY(-50%);
+      z-index: 9998; display: flex; flex-direction: column; gap: 10px;
+    }
+    .nav-item { position: relative; display: flex; align-items: center; justify-content: flex-end; }
+    .nav-dot {
+      width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--text-muted);
+      background: transparent; cursor: pointer; transition: all 0.3s; flex-shrink: 0;
+    }
+    .nav-dot.active { background: var(--accent); border-color: var(--accent); transform: scale(1.4); }
+    .nav-label {
+      position: absolute; right: 22px; white-space: nowrap;
+      font-family: var(--font-hand); font-size: 14px; color: var(--text-light);
+      background: rgba(20,20,20,0.92); backdrop-filter: blur(6px);
+      padding: 4px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);
+      opacity: 0; transform: translateX(6px); transition: opacity 0.25s, transform 0.25s;
+      pointer-events: none;
+    }
+    .nav-item:hover .nav-label { opacity: 1; transform: translateX(0); }
+
+    /* ===================== SLIDE BASE ===================== */
+    .slide {
+      width: 100vw; height: 100vh; height: 100dvh;
+      overflow: hidden; scroll-snap-align: center;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; background: var(--bg-dark);
+    }
+
+    /* ===================== NOTEBOOK CARD ===================== */
+    .nb-card {
+      position: relative;
+      width: min(740px, 78vw);
+      max-height: 93vh;
+      background: var(--bg-paper); color: var(--text-dark);
+      border-radius: 20px; border: 4px solid var(--accent2);
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .nb-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 30px, #d4dce8 30px, #d4dce8 31px);
+      opacity: 0.25; pointer-events: none; border-radius: 16px;
+    }
+    .nb-card-content {
+      position: relative; z-index: 2;
+      padding: var(--slide-padding);
+      overflow-y: auto; overflow-x: hidden;
+      scrollbar-width: none;
+      flex: 1; display: flex; flex-direction: column;
+    }
+    .nb-card-content::-webkit-scrollbar { display: none; }
+
+    .nb-card-dark {
+      background: #1a1a1a; color: var(--text-light); border-color: var(--accent);
+    }
+    .nb-card-dark::before {
+      background: repeating-linear-gradient(0deg, transparent, transparent 30px, rgba(255,255,255,0.04) 30px, rgba(255,255,255,0.04) 31px);
+      opacity: 0.5;
+    }
+    .nb-card-grid::before {
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 25px, #c8bfb0 25px, #c8bfb0 26px),
+        repeating-linear-gradient(90deg, transparent, transparent 25px, #c8bfb0 25px, #c8bfb0 26px);
+      opacity: 0.3;
+    }
+
+    .page-num {
+      position: absolute; bottom: 0.8rem; right: 1.2rem;
+      font-family: var(--font-hand); font-size: var(--small-size);
+      color: var(--text-muted); opacity: 0.5; z-index: 3;
+    }
+
+    /* ===================== STICKY NOTES ===================== */
+    .sticky {
+      position: relative; border-radius: 3px;
+      padding: clamp(0.9rem, 1.6vh, 1.4rem);
+      font-family: var(--font-body); color: var(--text-dark);
+      transition: box-shadow 0.3s, transform 0.3s; z-index: 2;
+    }
+    .sticky:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.2); transform: translateY(-2px); }
+    .sticky-text { position: relative; z-index: 2; }
+
+    .sticky-lined { background: var(--bg-cream); box-shadow: 3px 4px 12px rgba(0,0,0,0.15); }
+    .sticky-lined::before {
+      content: ''; position: absolute; inset: 0;
+      background:
+        linear-gradient(90deg, transparent 24px, #d4586a 24px, #d4586a 26px, transparent 26px),
+        repeating-linear-gradient(0deg, transparent, transparent 28px, #a8c4e0 28px, #a8c4e0 29px);
+      pointer-events: none; border-radius: 3px;
+    }
+    .binding-dots {
+      position: absolute; top: -10px; left: 0; right: 0; height: 14px;
+      display: flex; justify-content: space-around; z-index: 1;
+    }
+    .binding-dots span {
+      width: 8px; height: 8px; background: rgba(33,33,33,0.5);
+      border-radius: 50%; margin-top: 3px; border: 1px solid #bbb;
+    }
+
+    .sticky-grid { background: #e8e0d4; box-shadow: 3px 4px 12px rgba(0,0,0,0.15); }
+    .sticky-grid::before {
+      content: ''; position: absolute; inset: 0;
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 22px, #c8bfb0 22px, #c8bfb0 23px),
+        repeating-linear-gradient(90deg, transparent, transparent 22px, #c8bfb0 22px, #c8bfb0 23px);
+      opacity: 0.4; pointer-events: none; border-radius: 3px;
+    }
+
+    .sticky-clip { background: #ede5d8; box-shadow: 3px 4px 12px rgba(0,0,0,0.15); }
+    .sticky-clip::before {
+      content: ''; position: absolute; inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 28px, #d0c8bc 28px, #d0c8bc 29px);
+      opacity: 0.3; pointer-events: none; border-radius: 3px;
+    }
+    .paper-clip { position: absolute; top: -6px; left: 20px; width: 20px; height: 42px; z-index: 5; }
+    .paper-clip svg { width: 100%; height: 100%; }
+
+    /* ===================== BROWSER WINDOW ===================== */
+    .browser-win { background: var(--bg-dark); border-radius: 8px; overflow: hidden; border: 1.5px solid rgba(255,255,255,0.1); }
+    .browser-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .browser-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .browser-dot-r { background: #ff5f57; }
+    .browser-dot-y { background: #ffbd2e; }
+    .browser-dot-g { background: #28c840; }
+    .browser-body { padding: clamp(0.8rem, 1.5vh, 1.2rem); }
+
+    /* ===================== CHAT DEMO MOCKUP ===================== */
+    .chat-demo {
+      background: #1b1e25; border-radius: 10px; overflow: hidden;
+      display: flex; flex-direction: column;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .chat-demo ul, .chat-demo li { all: unset; display: block; }
+    .chat-demo li + li { margin-top: 0.15rem; }
+    .chat-top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.4rem 0.65rem; border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .chat-top-title {
+      font-family: var(--font-hand); font-size: clamp(0.7rem,1.3vh,0.88rem);
+      color: var(--text-light); font-weight: 700; letter-spacing: 2px;
+    }
+    .chat-top-right {
+      display: flex; gap: 0.6rem; align-items: center;
+      font-family: var(--font-hand); font-size: clamp(0.52rem,1vh,0.68rem); letter-spacing: 1.5px;
+    }
+    .chat-mode-on { color: #5CC06E; font-weight: 700; }
+    .chat-mode-off { color: var(--text-muted); }
+    .chat-dot { width: 6px; height: 6px; border-radius: 50%; background: #5CC06E; display: inline-block; vertical-align: middle; margin: 0 2px; }
+    .chat-new-btn {
+      border: 1px solid var(--text-muted); border-radius: 4px;
+      padding: 0.08rem 0.45rem; color: var(--text-light);
+    }
+    .chat-body {
+      flex: 1; padding: 0.45rem 0.55rem; display: flex; flex-direction: column;
+      gap: 0.4rem; overflow: hidden;
+      font-family: var(--font-hand); font-size: clamp(0.58rem,1.15vh,0.74rem);
+      color: var(--text-light); line-height: 1.55;
+    }
+    .chat-user-msg {
+      align-self: flex-end; max-width: 82%;
+      background: rgba(40,65,55,0.5); border: 1px solid rgba(80,140,100,0.3);
+      border-radius: 8px 8px 2px 8px; padding: 0.25rem 0.55rem;
+    }
+    .chat-bot-row { display: flex; gap: 0.35rem; align-items: flex-start; }
+    .chat-bot-av {
+      width: clamp(26px,4.5vh,38px); height: clamp(26px,4.5vh,38px);
+      border-radius: 7px; flex-shrink: 0; overflow: hidden; background: #FDFBFA;
+    }
+    .chat-bot-av canvas { width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .chat-bot-status {
+      font-size: clamp(0.48rem,0.9vh,0.62rem); color: var(--text-muted); letter-spacing: 1px; margin-top: 0.1rem;
+    }
+    .chat-resp {
+      background: #22262f; border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px; padding: 0.4rem 0.6rem;
+      margin-left: calc(clamp(26px,4.5vh,38px) + 0.35rem);
+    }
+    .chat-resp strong { color: #e8d4c0; }
+    .chat-resp-title { font-weight: 700; margin-bottom: 0.25rem; }
+    .chat-mini-tbl {
+      width: 100%; border-collapse: collapse; margin: 0.25rem 0; font-size: inherit;
+    }
+    .chat-mini-tbl th {
+      text-align: left; color: var(--text-muted); padding: 0.1rem 0.25rem;
+      border-bottom: 1px solid rgba(255,255,255,0.1); font-weight: 400;
+    }
+    .chat-mini-tbl td {
+      padding: 0.1rem 0.25rem; border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-light);
+    }
+    .chat-mini-tbl td:first-child { color: var(--accent); font-weight: 700; white-space: nowrap; }
+    .chat-source {
+      border-left: 2px solid #3A7AB0; padding: 0.2rem 0.5rem; margin-top: 0.3rem;
+      color: var(--text-muted); font-size: clamp(0.48rem,0.9vh,0.62rem);
+    }
+    .chat-source a { color: #6EAAD8; text-decoration: underline; }
+    .chat-followups {
+      display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem;
+      margin-left: calc(clamp(26px,4.5vh,38px) + 0.35rem);
+    }
+    .chat-followup-btn {
+      background: rgba(40,60,50,0.3); border: 1px solid rgba(80,140,100,0.25);
+      border-radius: 6px; padding: 0.18rem 0.45rem; color: #7dba8d;
+      font-family: var(--font-hand); font-size: clamp(0.48rem,0.9vh,0.62rem);
+    }
+    .chat-input-bar {
+      display: flex; align-items: center; gap: 0.3rem;
+      padding: 0.3rem 0.5rem; border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .chat-input-field {
+      flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; padding: 0.2rem 0.45rem;
+      color: var(--text-muted); font-family: var(--font-hand); font-size: clamp(0.48rem,0.9vh,0.62rem);
+    }
+    .chat-send-btn {
+      border: 1px solid var(--accent2); border-radius: 5px;
+      padding: 0.18rem 0.5rem; color: var(--accent2); background: transparent;
+      font-family: var(--font-hand); font-size: clamp(0.48rem,0.9vh,0.62rem);
+      font-weight: 700; letter-spacing: 1.5px;
+    }
+
+    /* ===================== DOODLES ===================== */
+    .doodle { position: absolute; z-index: 10; pointer-events: none; opacity: 0.5; }
+    .doodle svg { width: 100%; height: 100%; fill: none; stroke: var(--text-light); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .doodle-red svg { stroke: var(--accent2); }
+    .doodle-accent svg { stroke: var(--accent); }
+
+    /* ===================== LAYOUT ===================== */
+    .two-col { display: flex; gap: clamp(1.2rem, 3vw, 2.5rem); align-items: stretch; }
+    .two-col > * { flex: 1; min-width: 0; }
+    .col-accent { border-left: 3px solid var(--accent2); padding-left: 1rem; }
+
+    .card-grid { display: grid; gap: clamp(0.7rem, 1.5vw, 1.1rem); }
+    .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .card-grid-4 { grid-template-columns: repeat(2, 1fr); }
+
+    .slide-title { font-family: var(--font-display); font-size: var(--h2-size); font-weight: 700; margin-bottom: var(--content-gap); }
+    .slide-title-paper { color: var(--accent2); }
+    .slide-title-dark { color: var(--accent); }
+    .slide-subtitle { font-family: var(--font-body); font-size: var(--body-size); color: var(--text-muted); line-height: 1.5; }
+
+    blockquote {
+      font-family: var(--font-display); font-size: clamp(1.05rem, 2.2vh, 1.35rem);
+      color: var(--accent2); border-left: 3px solid var(--accent2);
+      padding: 0.4rem 1rem; margin: var(--content-gap) 0; font-style: italic; line-height: 1.4;
+    }
+
+    table { border-collapse: collapse; width: 100%; font-size: var(--body-size); }
+    th { text-align: left; color: var(--accent2); padding: 0.4rem 0.8rem; border-bottom: 2px solid var(--accent2); font-family: var(--font-display); }
+    td { padding: 0.4rem 0.8rem; border-bottom: 1px solid rgba(0,0,0,0.08); color: var(--text-dark); }
+
+    ul { list-style: none; padding: 0; }
+    li { font-size: var(--body-size); line-height: 1.5; padding: 0.25rem 0; color: var(--text-dark); }
+    li::before { content: '—'; color: var(--accent2); margin-right: 0.4rem; }
+
+    .nb-card-dark li { color: var(--text-light); }
+    .nb-card-dark li::before { color: var(--accent); }
+    .nb-card-dark blockquote { color: var(--accent); border-left-color: var(--accent); }
+    .nb-card-dark td { color: var(--text-light); border-bottom-color: rgba(255,255,255,0.08); }
+    .nb-card-dark th { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tag { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 4px; font-size: var(--small-size); margin-right: 0.2rem; }
+    .tag-raw { background: rgba(221,98,54,0.15); color: var(--accent); }
+    .tag-lite { background: rgba(59,163,79,0.15); color: #3BA34F; }
+    .tag-pro { background: rgba(58,122,176,0.15); color: #3A7AB0; }
+
+    .flamme-box {
+      width: clamp(80px, 12vw, 130px); height: clamp(80px, 12vw, 130px);
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15); background: #FDFBFA; flex-shrink: 0;
+    }
+    .flamme-box canvas { width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+
+    /* ===================== ANIMATIONS ===================== */
+    .reveal {
+      opacity: 0; transform: translateY(24px);
+      transition: opacity var(--duration) var(--ease-out-expo), transform var(--duration) var(--ease-out-expo);
+    }
+    .slide.visible .reveal { opacity: 1; transform: translateY(0); }
+    .reveal:nth-child(1) { transition-delay: 0.1s; }
+    .reveal:nth-child(2) { transition-delay: 0.2s; }
+    .reveal:nth-child(3) { transition-delay: 0.25s; }
+    .reveal:nth-child(4) { transition-delay: 0.35s; }
+    .reveal:nth-child(5) { transition-delay: 0.45s; }
+
+    .nb-card {
+      opacity: 0; transform: scale(0.96) translateY(16px);
+      transition: opacity 0.5s var(--ease-out-expo), transform 0.5s var(--ease-out-expo);
+    }
+    .slide.visible .nb-card { opacity: 1; transform: scale(1) translateY(0); }
+
+    .slide.visible .sticky { animation: stickyIn 0.5s var(--ease-out-expo) both; }
+    .slide.visible .sticky:nth-child(1) { animation-delay: 0.15s; }
+    .slide.visible .sticky:nth-child(2) { animation-delay: 0.25s; }
+    .slide.visible .sticky:nth-child(3) { animation-delay: 0.35s; }
+    .slide.visible .sticky:nth-child(4) { animation-delay: 0.45s; }
+    @keyframes stickyIn {
+      from { opacity: 0; transform: translateY(20px) rotate(var(--rot, 0deg)); }
+      to { opacity: 1; transform: translateY(0) rotate(var(--rot, 0deg)); }
+    }
+
+    /* ===================== RESPONSIVE ===================== */
+    @media (max-height: 700px) {
+      :root { --slide-padding: clamp(0.8rem,3vw,2rem); --content-gap: clamp(0.4rem,1.5vw,1rem); --h2-size: clamp(1.2rem,3.5vw,2rem); }
+    }
+    @media (max-height: 600px) {
+      :root { --slide-padding: clamp(0.5rem,2.5vw,1.5rem); --body-size: clamp(0.8rem,1.4vw,1rem); }
+      .nav-dots, .doodle, .noise-overlay { display: none; }
+    }
+    @media (max-width: 700px) {
+      :root { --flame-width: 36px; }
+      .two-col { flex-direction: column !important; }
+      .card-grid-3 { grid-template-columns: 1fr !important; }
+      .card-grid-4 { grid-template-columns: 1fr !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+      html { scroll-behavior: auto; }
+      .noise-overlay, .doodle { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- =================== FIXED LAYERS =================== -->
+  <div class="flame-border flame-border-left"><canvas id="flameLeft"></canvas></div>
+  <div class="flame-border flame-border-right"><canvas id="flameRight"></canvas></div>
+  <div class="progress-bar" id="progressBar"></div>
+  <div class="noise-overlay" aria-hidden="true"></div>
+  <nav class="nav-dots" id="navDots"></nav>
+
+  <!-- ========== SLIDE 1: TITLE ========== -->
+  <section class="slide" data-slide="1" data-nav-title="LLM-WIKI">
+    <div class="doodle doodle-red" style="left:calc(var(--flame-width) + 20px);top:18%;width:60px;height:75px;">
+      <svg viewBox="0 0 60 75"><rect x="8" y="12" width="44" height="55" rx="4"/><circle cx="30" cy="34" r="8"/><path d="M16 58 L44 58"/><path d="M22 66 L38 66"/></svg>
+    </div>
+    <div class="doodle" style="right:calc(var(--flame-width) + 20px);top:22%;width:70px;height:55px;">
+      <svg viewBox="0 0 70 55"><ellipse cx="35" cy="28" rx="25" ry="18"/><path d="M20 22 Q25 14 30 22"/><path d="M40 22 Q45 14 50 22"/><path d="M25 36 Q35 44 45 36"/></svg>
+    </div>
+    <div class="doodle doodle-accent" style="left:calc(var(--flame-width) + 30px);bottom:20%;width:50px;height:60px;">
+      <svg viewBox="0 0 50 60"><path d="M12 8 L38 8 L38 50 L25 42 L12 50 Z"/></svg>
+    </div>
+
+    <div class="nb-card" style="text-align:center;">
+      <div class="nb-card-content" style="align-items:center;justify-content:center;">
+        <div class="flamme-box reveal" style="margin-bottom:1.2rem;">
+          <canvas id="flammeTitle" width="720" height="720"></canvas>
+        </div>
+        <h1 class="reveal" style="font-family:var(--font-display);font-size:clamp(3rem,7vh,5rem);color:var(--accent2);font-weight:700;line-height:1.1;">
+          LLM-WIKI
+        </h1>
+        <p class="reveal" style="font-family:var(--font-body);font-size:clamp(1.3rem,3vh,1.8rem);color:var(--text-dark);margin-top:0.5rem;">
+          你的 AI 知识库管家
+        </p>
+        <p class="reveal" style="font-family:var(--font-hand);font-size:var(--body-size);color:var(--text-muted);margin-top:1.2rem;">
+          从课件到考题，让 LLM 替你整理知识体系
+        </p>
+      </div>
+      <span class="page-num">01 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 2: PAIN POINTS ========== -->
+  <section class="slide" data-slide="2" data-nav-title="知识是散的">
+    <div class="doodle" style="right:calc(var(--flame-width) + 15px);bottom:16%;width:80px;height:70px;">
+      <svg viewBox="0 0 80 70"><path d="M40 5 L65 55 L12 55 Z"/><circle cx="40" cy="35" r="7"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-dark reveal">备考的核心矛盾：知识是散的</h2>
+        <div class="card-grid card-grid-4 reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-2deg;transform:rotate(-2deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <strong style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent);">笔记越记越乱</strong>
+              <p style="font-size:var(--body-size);color:var(--text-muted);margin-top:0.3rem;">PDF、笔记、手写、网页散落各处</p>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1deg;transform:rotate(1deg);">
+            <div class="sticky-text">
+              <strong style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent2);">整理比学习还累</strong>
+              <p style="font-size:var(--body-size);color:var(--text-muted);margin-top:0.3rem;">双链/标签手动维护，坚持不了一周</p>
+            </div>
+          </div>
+          <div class="sticky sticky-clip" style="--rot:-1deg;transform:rotate(-1deg);">
+            <div class="paper-clip"><svg viewBox="0 0 20 42" fill="none" stroke="#888" stroke-width="1.5"><path d="M5 42 L5 10 Q5 3 10 3 Q15 3 15 10 L15 32 Q15 37 10 37 Q5 37 5 32 L5 14"/></svg></div>
+            <div class="sticky-text">
+              <strong style="font-family:var(--font-display);font-size:var(--h3-size);color:#6EAAD8;">AI 聊完就忘</strong>
+              <p style="font-size:var(--body-size);color:var(--text-muted);margin-top:0.3rem;">ChatGPT 每次从零开始，学过的无法复用</p>
+            </div>
+          </div>
+          <div class="sticky sticky-lined" style="--rot:2deg;transform:rotate(2deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <strong style="font-family:var(--font-display);font-size:var(--h3-size);color:#5CC06E;">好工具用不了</strong>
+              <p style="font-size:var(--body-size);color:var(--text-muted);margin-top:0.3rem;">NotebookLM 要翻墙，学习状态被打断</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">02 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 3: KARPATHY INSIGHT ========== -->
+  <section class="slide" data-slide="3" data-nav-title="Karpathy 洞察">
+    <div class="doodle doodle-red" style="right:calc(var(--flame-width) + 20px);top:20%;width:65px;height:55px;">
+      <svg viewBox="0 0 65 55"><ellipse cx="32" cy="28" rx="24" ry="18"/><circle cx="22" cy="24" r="3" fill="none"/><circle cx="42" cy="24" r="3" fill="none"/><path d="M26 34 Q32 40 38 34"/></svg>
+    </div>
+    <div class="nb-card">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-paper reveal">Karpathy 的洞察：不是 RAG，是复利</h2>
+        <div class="two-col reveal" style="margin-top:var(--content-gap);">
+          <div>
+            <blockquote>
+              LLM 不是在查询时从原始文档检索，而是增量构建并维护一个持久化的 wiki——知识编译一次，持续更新。
+            </blockquote>
+            <p class="slide-subtitle" style="margin-top:0.8rem;">— Andrej Karpathy，2025</p>
+          </div>
+          <div class="col-accent">
+            <ul>
+              <li><strong>RAG 模式</strong>：每次从零检索，没有积累</li>
+              <li><strong>Wiki 模式</strong>：交叉引用已建、矛盾已标</li>
+              <li>每添加一份资料，wiki 都更丰富</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">03 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 4: THREE-LAYER ARCH ========== -->
+  <section class="slide" data-slide="4" data-nav-title="三层架构">
+    <div class="doodle" style="left:calc(var(--flame-width) + 15px);top:14%;width:80px;height:80px;">
+      <svg viewBox="0 0 80 80"><ellipse cx="40" cy="44" rx="30" ry="22"/><path d="M18 40 Q14 28 22 24"/><path d="M62 40 Q66 28 58 24"/><circle cx="30" cy="40" r="3" fill="var(--text-light)"/><circle cx="50" cy="40" r="3" fill="var(--text-light)"/><path d="M35 52 Q40 58 45 52"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-dark reveal">三层架构</h2>
+        <div class="card-grid card-grid-3 reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-1deg;transform:rotate(-1deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <span class="tag tag-lite">不可变</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3BA34F;margin:0.4rem 0;">原始资料层</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">论文、课件、图片<br>LLM 只读不改</p>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1.5deg;transform:rotate(1.5deg);">
+            <div class="sticky-text">
+              <span class="tag tag-raw">LLM 全权管理</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent);margin:0.4rem 0;">Wiki 层</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">摘要、实体页、概念页、综述<br>你来读，LLM 来写</p>
+            </div>
+          </div>
+          <div class="sticky sticky-clip" style="--rot:-0.5deg;transform:rotate(-0.5deg);">
+            <div class="paper-clip"><svg viewBox="0 0 20 42" fill="none" stroke="#888" stroke-width="1.5"><path d="M5 42 L5 10 Q5 3 10 3 Q15 3 15 10 L15 32 Q15 37 10 37 Q5 37 5 32 L5 14"/></svg></div>
+            <div class="sticky-text">
+              <span class="tag tag-pro">配置</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#6EAAD8;margin:0.4rem 0;">Schema 层</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">CLAUDE.md 定义结构、约定<br>你和 LLM 共同演进</p>
+            </div>
+          </div>
+        </div>
+        <p class="reveal" style="margin-top:var(--content-gap);text-align:center;font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent);">
+          Obsidian 是 IDE，LLM 是程序员，wiki 是代码库
+        </p>
+      </div>
+      <span class="page-num">04 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 5: FEATURE MATRIX ========== -->
+  <section class="slide" data-slide="5" data-nav-title="核心功能">
+    <div class="doodle doodle-accent" style="left:calc(var(--flame-width) + 25px);bottom:22%;width:55px;height:70px;">
+      <svg viewBox="0 0 55 70"><path d="M10 8 L45 8 L45 55 L28 46 L10 55 Z"/></svg>
+    </div>
+    <div class="nb-card nb-card-grid">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-paper reveal">核心功能一览</h2>
+        <div class="card-grid card-grid-4 reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-1.5deg;transform:rotate(-1.5deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent2);">知识摄入</h3>
+              <ul style="margin-top:0.3rem;"><li>PDF/PPT 解析</li><li>三级处理规则</li><li>手写 OCR</li><li>实体自动提取</li></ul>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1deg;transform:rotate(1deg);">
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3A7AB0;">知识检索</h3>
+              <ul style="margin-top:0.3rem;"><li>语义搜索</li><li>自然语言对话</li><li>追问式学习</li><li>来源溯源</li></ul>
+            </div>
+          </div>
+          <div class="sticky sticky-clip" style="--rot:-0.8deg;transform:rotate(-0.8deg);">
+            <div class="paper-clip"><svg viewBox="0 0 20 42" fill="none" stroke="#888" stroke-width="1.5"><path d="M5 42 L5 10 Q5 3 10 3 Q15 3 15 10 L15 32 Q15 37 10 37 Q5 37 5 32 L5 14"/></svg></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3BA34F;">知识可视化</h3>
+              <ul style="margin-top:0.3rem;"><li>力导向图谱</li><li>概念关联探索</li><li>路径发现</li><li>社区结构</li></ul>
+            </div>
+          </div>
+          <div class="sticky sticky-lined" style="--rot:1.5deg;transform:rotate(1.5deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent2);">自动维护</h3>
+              <ul style="margin-top:0.3rem;"><li>批量标签补全</li><li>孤立页面检测</li><li>脏数据清理</li><li>Lint 检查</li></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">05 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 6: THREE-LEVEL INGEST ========== -->
+  <section class="slide" data-slide="6" data-nav-title="三级摄入">
+    <div class="doodle doodle-red" style="right:calc(var(--flame-width) + 18px);top:15%;width:60px;height:70px;">
+      <svg viewBox="0 0 60 70"><rect x="8" y="10" width="44" height="52" rx="4"/><circle cx="30" cy="30" r="8"/><path d="M18 50 L42 50"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-dark reveal">三级知识摄入</h2>
+        <div class="card-grid card-grid-3 reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-1deg;transform:rotate(-1deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <span class="tag tag-raw">raw</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#5CC06E;margin:0.4rem 0;">原样入档</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">只加 frontmatter<br><strong>一个字不改</strong></p>
+              <p style="font-size:var(--small-size);color:var(--text-muted);margin-top:0.4rem;">日记 · 随笔 · 灵感</p>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1deg;transform:rotate(1deg);">
+            <div class="sticky-text">
+              <span class="tag tag-lite">lite</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent);margin:0.4rem 0;">打标签建双链</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">加 frontmatter + 标签 + [[双链]]<br><strong>不概括</strong></p>
+              <p style="font-size:var(--small-size);color:var(--text-muted);margin-top:0.4rem;">课件 · PPT · 复习资料</p>
+            </div>
+          </div>
+          <div class="sticky sticky-clip" style="--rot:-0.5deg;transform:rotate(-0.5deg);">
+            <div class="paper-clip"><svg viewBox="0 0 20 42" fill="none" stroke="#888" stroke-width="1.5"><path d="M5 42 L5 10 Q5 3 10 3 Q15 3 15 10 L15 32 Q15 37 10 37 Q5 37 5 32 L5 14"/></svg></div>
+            <div class="sticky-text">
+              <span class="tag tag-pro">pro</span>
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#6EAAD8;margin:0.4rem 0;">完整概括</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">建实体页 + 概念页 + 更新综述<br><strong>交叉引用</strong></p>
+              <p style="font-size:var(--small-size);color:var(--text-muted);margin-top:0.4rem;">论文 · 教材 · 深度分析</p>
+            </div>
+          </div>
+        </div>
+        <p class="reveal" style="margin-top:var(--content-gap);font-size:var(--body-size);color:var(--text-muted);text-align:center;">
+          概括会损失信息 — lite 保留全部原文，只建索引和链接
+        </p>
+      </div>
+      <span class="page-num">06 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 7: KNOWLEDGE GRAPH ========== -->
+  <section class="slide" data-slide="7" data-nav-title="知识图谱">
+    <div class="doodle" style="left:calc(var(--flame-width) + 20px);bottom:18%;width:60px;height:55px;">
+      <svg viewBox="0 0 60 55"><path d="M30 5 Q50 0 55 20 Q60 40 40 45 Q45 55 30 50 Q18 58 15 45 Q0 40 5 25 Q5 10 20 8 Q25 2 30 5Z"/></svg>
+    </div>
+    <div class="nb-card">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-paper reveal">知识图谱：看见知识的连接</h2>
+        <div class="two-col reveal" style="margin-top:var(--content-gap);">
+          <div style="display:flex;flex-direction:column;justify-content:center;">
+            <div class="browser-win">
+              <div class="browser-bar">
+                <div class="browser-dot browser-dot-r"></div>
+                <div class="browser-dot browser-dot-y"></div>
+                <div class="browser-dot browser-dot-g"></div>
+                <span style="font-family:var(--font-hand);font-size:var(--small-size);color:var(--text-muted);margin-left:8px;">knowledge-graph</span>
+              </div>
+              <div class="browser-body" style="text-align:center;">
+                <svg viewBox="0 0 300 180" style="width:100%;max-height:min(25vh,180px);">
+                  <circle cx="150" cy="90" r="16" fill="#DD6236" opacity="0.9"><animate attributeName="r" values="16;18;16" dur="2s" repeatCount="indefinite"/></circle>
+                  <circle cx="80" cy="45" r="9" fill="#3A7AB0" opacity="0.7"/>
+                  <circle cx="220" cy="45" r="11" fill="#3BA34F" opacity="0.7"/>
+                  <circle cx="60" cy="140" r="7" fill="#c85c5c" opacity="0.6"/>
+                  <circle cx="240" cy="140" r="8" fill="#3A7AB0" opacity="0.6"/>
+                  <circle cx="150" cy="160" r="6" fill="#DD6236" opacity="0.5"/>
+                  <circle cx="50" cy="90" r="5" fill="#3BA34F" opacity="0.4"/>
+                  <line x1="150" y1="90" x2="80" y2="45" stroke="#f5ece0" stroke-width="1.5" opacity="0.3"/>
+                  <line x1="150" y1="90" x2="220" y2="45" stroke="#f5ece0" stroke-width="1.5" opacity="0.3"/>
+                  <line x1="150" y1="90" x2="60" y2="140" stroke="#f5ece0" stroke-width="1" opacity="0.25"/>
+                  <line x1="150" y1="90" x2="240" y2="140" stroke="#f5ece0" stroke-width="1" opacity="0.25"/>
+                  <line x1="80" y1="45" x2="50" y2="90" stroke="#f5ece0" stroke-width="0.8" opacity="0.15"/>
+                  <line x1="150" y1="90" x2="150" y2="160" stroke="#f5ece0" stroke-width="0.8" opacity="0.2"/>
+                  <text x="150" y="94" text-anchor="middle" fill="#fff" font-size="8" font-family="Kalam">矩阵</text>
+                  <text x="80" y="49" text-anchor="middle" fill="#fff" font-size="6" font-family="Kalam">线性变换</text>
+                  <text x="220" y="49" text-anchor="middle" fill="#fff" font-size="6" font-family="Kalam">特征值</text>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:center;">
+            <p style="font-size:var(--h3-size);font-family:var(--font-display);color:var(--accent2);margin-bottom:0.6rem;">
+              考试不考孤立知识点，考的是关联
+            </p>
+            <ul>
+              <li>紧密关联 → 重点复习区</li>
+              <li>孤悬在外 → 可能是遗漏的知识</li>
+              <li>两个概念隔几层 → 理解深度指标</li>
+            </ul>
+            <p class="slide-subtitle" style="margin-top:0.6rem;font-size:var(--small-size);">
+              7 种查询：search / explore / path / neighbors / community / isolates / stats
+            </p>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">07 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 8: SEARCH MODE ========== -->
+  <section class="slide" data-slide="8" data-nav-title="搜索模式">
+    <div class="doodle doodle-accent" style="left:calc(var(--flame-width) + 20px);top:18%;width:55px;height:55px;">
+      <svg viewBox="0 0 55 55"><path d="M28 4 L30 14 L40 14 L32 20 L35 30 L28 24 L21 30 L24 20 L16 14 L26 14 Z"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark" style="max-height:95vh;">
+      <div class="nb-card-content" style="gap:var(--content-gap);">
+        <h2 class="slide-title slide-title-dark reveal" style="margin-bottom:0;">🔍 搜索模式：自然语言管理知识库</h2>
+        <div class="reveal" style="flex:1;min-height:0;display:flex;">
+          <div class="chat-demo" style="flex:1;">
+            <div class="chat-top">
+              <span class="chat-top-title">Flamme Chat</span>
+              <div class="chat-top-right">
+                <span class="chat-mode-on">SEARCH</span><span class="chat-dot"></span><span class="chat-mode-off">LEARN</span>
+                <span class="chat-new-btn">NEW CHAT</span>
+              </div>
+            </div>
+            <div class="chat-body">
+              <div class="chat-user-msg">搜索有关人工智能机器学习有关内容</div>
+              <div class="chat-bot-row">
+                <div class="chat-bot-av"><canvas id="flammeSearch" width="720" height="720"></canvas></div>
+                <div><div class="chat-bot-status">Thinking...</div></div>
+              </div>
+              <div class="chat-resp">
+                <div class="chat-resp-title">📋 知识库中的 AI 与 ML 内容总览</div>
+                <div>以下是知识库中关于 <strong>人工智能（AI）</strong> 和 <strong>机器学习（ML）</strong> 的核心内容整理：</div>
+                <div style="margin-top:0.2rem;font-size:clamp(0.5rem,1vh,0.65rem);color:var(--text-muted);">📁 核心课程资料</div>
+                <div style="font-weight:700;margin:0.15rem 0;">1. 绪论 — 人工智能导论</div>
+                <div class="chat-source" style="margin-top:0.1rem;">来源：南京大学《人工智能导论》课程，赵放老师</div>
+                <div style="margin-top:0.25rem;">涵盖内容：</div>
+                <table class="chat-mini-tbl">
+                  <thead><tr><th>主题</th><th>要点</th></tr></thead>
+                  <tbody>
+                    <tr><td>什么是AI</td><td>4种定义维度：类人思考、类人行为、理性思考、理性行为</td></tr>
+                    <tr><td>三大流派</td><td>🟢 符号主义（知识驱动）· 🟢 联结主义（数据驱动/神经网络）· 🟢 行为主义（刺激-反应/强化学习）</td></tr>
+                    <tr><td>AI发展史</td><td>推理期(1956)→寒冬→知识期(专家系统)→寒冬→学习期(1990s至今)→深度学习时代(2010+)</td></tr>
+                    <tr><td>未来挑战</td><td>可信性、安全性、可解释性、泛化性、数据瓶颈</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="chat-input-bar">
+              <div class="chat-input-field">输入消息...（支持自然语言）</div>
+              <div class="chat-send-btn">SEND</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">08 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 9: LEARN MODE ========== -->
+  <section class="slide" data-slide="9" data-nav-title="学习模式">
+    <div class="doodle" style="right:calc(var(--flame-width) + 18px);bottom:20%;width:60px;height:55px;">
+      <svg viewBox="0 0 60 55"><ellipse cx="30" cy="28" rx="22" ry="17"/><path d="M18 22 Q22 14 26 22"/><path d="M34 22 Q38 14 42 22"/><path d="M23 35 Q30 42 37 35"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark" style="max-height:95vh;">
+      <div class="nb-card-content" style="gap:var(--content-gap);">
+        <h2 class="slide-title slide-title-dark reveal" style="margin-bottom:0;">📖 学习模式：追问式备考助手</h2>
+        <div class="reveal" style="flex:1;min-height:0;display:flex;">
+          <div class="chat-demo" style="flex:1;">
+            <div class="chat-top">
+              <span class="chat-top-title">Flamme Chat</span>
+              <div class="chat-top-right">
+                <span class="chat-mode-off">SEARCH</span><span class="chat-dot"></span><span class="chat-mode-on">LEARN</span>
+                <span class="chat-new-btn">NEW CHAT</span>
+              </div>
+            </div>
+            <div class="chat-body" style="gap:0.45rem;">
+              <div style="font-size:clamp(0.5rem,0.9vh,0.62rem);color:var(--text-muted);">+ 选择文件</div>
+              <div class="chat-user-msg">正则化在梯度下降里的应用是什么？</div>
+              <div class="chat-bot-row">
+                <div class="chat-bot-av"><canvas id="flammeLearn" width="720" height="720"></canvas></div>
+                <div><div class="chat-bot-status">Answering...</div></div>
+              </div>
+              <div class="chat-resp">
+                <div>知识库中关于正则化在梯度下降中具体应用的内容不多，我来用自己的知识帮你解释清楚。</div>
+                <div style="margin-top:0.3rem;"><strong>正则化在梯度下降中的应用</strong>，本质上是在损失函数中加一个"惩罚项"，梯度下降更新参数时就会额外"拽"一下参数，防止它们变得太大。</div>
+                <div style="margin-top:0.3rem;">具体来说，加入 L2 正则化（Ridge）后，损失函数变成 <em>J(w) = 原始损失 + λΣw<sub>j</sub>²</em>。梯度下降的更新公式就从：</div>
+                <div style="margin:0.2rem 0 0.2rem 0.5rem;color:#6EAAD8;">w<sub>j</sub> := w<sub>j</sub> − α·(∂J<sub>原始</sub>/∂w<sub>j</sub> + 2λw<sub>j</sub>)</div>
+                <div>每次更新时，参数 w<sub>j</sub> 会被多减去一个 <strong style="color:#6EAAD8;">α·2λ·w<sub>j</sub></strong>，相当于<strong>每次迭代都在把参数往零的方向压缩</strong>。这就是为什么正则化能抑制过拟合。</div>
+                <div class="chat-source">来源：知识库中 <a>线性回归到分类的衔接总结</a> · 更多背景可看 <a>6.机器学习初步</a></div>
+              </div>
+              <div class="chat-followups">
+                <div class="chat-followup-btn">L1 正则化（Lasso）的梯度更新公式有什么不同？</div>
+                <div class="chat-followup-btn">正则化系数 λ 怎么选？设太大或太小分别会怎样？</div>
+              </div>
+            </div>
+            <div class="chat-input-bar">
+              <div class="chat-input-field">输入消息...（支持自然语言）</div>
+              <div class="chat-send-btn">SEND</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">09 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 10: VS NOTEBOOKLM ========== -->
+  <section class="slide" data-slide="10" data-nav-title="vs NotebookLM">
+    <div class="doodle" style="left:calc(var(--flame-width) + 22px);top:20%;width:65px;height:60px;">
+      <svg viewBox="0 0 65 60"><path d="M4 30 Q30 4 56 30 Q30 56 4 30 Z"/></svg>
+    </div>
+    <div class="nb-card">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-paper reveal">LLM-WIKI vs Google NotebookLM</h2>
+        <div class="two-col reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-1deg;transform:rotate(-1deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent);margin-bottom:0.6rem;">LLM-WIKI</h3>
+              <ul><li>本地存储，无需翻墙</li><li><strong>Wiki 复利</strong>：知识持续沉淀</li><li>知识图谱 + 7 种查询</li><li>LaTeX 公式支持</li><li>AI 模型可切换</li></ul>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1deg;transform:rotate(1deg);">
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3A7AB0;margin-bottom:0.6rem;">NotebookLM</h3>
+              <ul><li>Google 云端，需翻墙</li><li><strong>RAG 模式</strong>：每次重新检索</li><li>简单思维导图</li><li>不支持公式</li><li>锁定 Google 模型</li></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">10 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 11: VS OBSIDIAN ========== -->
+  <section class="slide" data-slide="11" data-nav-title="vs Obsidian">
+    <div class="doodle doodle-red" style="right:calc(var(--flame-width) + 20px);bottom:20%;width:55px;height:65px;">
+      <svg viewBox="0 0 55 65"><rect x="10" y="5" width="35" height="55" rx="4"/><path d="M18 20 L37 20"/><path d="M18 30 L37 30"/><path d="M18 40 L30 40"/></svg>
+    </div>
+    <div class="nb-card nb-card-dark">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-dark reveal">Obsidian 给了锤子，LLM-WIKI 给了工人</h2>
+        <div class="reveal" style="margin-top:var(--content-gap);overflow-x:auto;">
+          <table>
+            <thead><tr><th>维度</th><th>原生 Obsidian</th><th>+ LLM-WIKI</th></tr></thead>
+            <tbody>
+              <tr><td>双链</td><td style="color:var(--text-muted);">手动输入 [[</td><td>LLM 自动建链</td></tr>
+              <tr><td>标签</td><td style="color:var(--text-muted);">手动打</td><td>LLM 自动推荐</td></tr>
+              <tr><td>图谱</td><td style="color:var(--text-muted);">装饰性</td><td>可查询（搜索/路径/社区）</td></tr>
+              <tr><td>搜索</td><td style="color:var(--text-muted);">关键词匹配</td><td>语义搜索</td></tr>
+              <tr><td>PDF</td><td style="color:var(--text-muted);">需装插件</td><td>MinerU 精准解析</td></tr>
+              <tr><td>维护</td><td style="color:var(--text-muted);">全靠手动</td><td>自动 Lint + 批量修复</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <span class="page-num">11 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 12: STUDENT SCENARIOS ========== -->
+  <section class="slide" data-slide="12" data-nav-title="典型场景">
+    <div class="doodle" style="left:calc(var(--flame-width) + 18px);top:18%;width:60px;height:65px;">
+      <svg viewBox="0 0 60 65"><path d="M20 60 Q30 15 40 60"/><path d="M16 55 Q30 25 44 55"/><path d="M12 62 Q30 45 48 62"/><circle cx="25" cy="38" r="4"/><circle cx="35" cy="35" r="4"/></svg>
+    </div>
+    <div class="nb-card nb-card-grid">
+      <div class="nb-card-content">
+        <h2 class="slide-title slide-title-paper reveal">四个典型场景</h2>
+        <div class="card-grid card-grid-4 reveal" style="margin-top:var(--content-gap);">
+          <div class="sticky sticky-lined" style="--rot:-2deg;transform:rotate(-2deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent2);margin-bottom:0.4rem;">期中复习</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">批量丢课件 → 自动建库 → 图谱查盲区 → 学习模式攻克</p>
+            </div>
+          </div>
+          <div class="sticky sticky-grid" style="--rot:1.5deg;transform:rotate(1.5deg);">
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3A7AB0;margin-bottom:0.4rem;">论文精读</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">pro 级摄入 → 自动概括 → 对话式对比差异</p>
+            </div>
+          </div>
+          <div class="sticky sticky-clip" style="--rot:-1deg;transform:rotate(-1deg);">
+            <div class="paper-clip"><svg viewBox="0 0 20 42" fill="none" stroke="#888" stroke-width="1.5"><path d="M5 42 L5 10 Q5 3 10 3 Q15 3 15 10 L15 32 Q15 37 10 37 Q5 37 5 32 L5 14"/></svg></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:#3BA34F;margin-bottom:0.4rem;">考前突击</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">图谱找孤立节点 → 逐个追问深入 → Lint 确保无缺失</p>
+            </div>
+          </div>
+          <div class="sticky sticky-lined" style="--rot:1deg;transform:rotate(1deg);">
+            <div class="binding-dots"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="sticky-text">
+              <h3 style="font-family:var(--font-display);font-size:var(--h3-size);color:var(--accent2);margin-bottom:0.4rem;">日常上课</h3>
+              <p style="font-size:var(--body-size);color:var(--text-muted);">Obsidian 随手记 → 自动补标签建链接 → 下次搜得到</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="page-num">12 / 13</span>
+    </div>
+  </section>
+
+  <!-- ========== SLIDE 13: ENDING ========== -->
+  <section class="slide" data-slide="13" data-nav-title="结语">
+    <div class="doodle doodle-red" style="left:calc(var(--flame-width) + 20px);top:25%;width:70px;height:60px;">
+      <svg viewBox="0 0 70 60"><ellipse cx="35" cy="30" rx="28" ry="22"/><path d="M18 24 Q22 16 26 24"/><path d="M44 24 Q48 16 52 24"/><circle cx="22" cy="28" r="3" fill="none"/><circle cx="48" cy="28" r="3" fill="none"/><path d="M28 40 Q35 48 42 40"/></svg>
+    </div>
+    <div class="doodle" style="right:calc(var(--flame-width) + 25px);bottom:22%;width:60px;height:70px;">
+      <svg viewBox="0 0 60 70"><path d="M30 5 L33 18 L46 18 L35 26 L39 40 L30 32 L21 40 L25 26 L14 18 L27 18 Z"/></svg>
+    </div>
+    <div class="nb-card" style="text-align:center;">
+      <div class="nb-card-content" style="align-items:center;justify-content:center;">
+        <div class="flamme-box reveal" style="margin-bottom:1.2rem;">
+          <canvas id="flammeEnd" width="720" height="720"></canvas>
+        </div>
+        <h1 class="reveal" style="font-family:var(--font-display);font-size:clamp(2.5rem,6vh,4rem);color:var(--accent2);font-weight:700;">
+          不是 RAG，是复利
+        </h1>
+        <p class="reveal" style="font-family:var(--font-body);font-size:var(--h3-size);color:var(--text-dark);margin-top:0.5rem;">
+          知识编译一次，持续增长
+        </p>
+        <p class="reveal" style="font-family:var(--font-hand);font-size:var(--body-size);color:var(--text-muted);margin-top:1.5rem;">
+          开源免费 · 本地优先 · Obsidian 原生
+        </p>
+      </div>
+      <span class="page-num">13 / 13</span>
+    </div>
+  </section>
+
+  <script>
+    /* ===================== FLAME BORDER RENDERER ===================== */
+    const FLAME_PRESETS = [
+      { bw:22, f1:0.022, f2:0.055, a1:10, a2:5,  s1:1.0, s2:1.4 },
+      { bw:28, f1:0.038, f2:0.085, a1:13, a2:4,  s1:1.3, s2:1.9 },
+      { bw:20, f1:0.014, f2:0.040, a1: 6, a2:3,  s1:0.7, s2:1.0 },
+      { bw:26, f1:0.048, f2:0.110, a1: 9, a2:7,  s1:1.5, s2:2.1 },
+      { bw:30, f1:0.018, f2:0.065, a1:15, a2:5,  s1:0.8, s2:1.2 },
+      { bw:18, f1:0.030, f2:0.080, a1: 7, a2:4,  s1:1.1, s2:1.6 },
+      { bw:25, f1:0.035, f2:0.095, a1:11, a2:6,  s1:1.4, s2:2.0 },
+      { bw:24, f1:0.008, f2:0.028, a1:16, a2:9,  s1:0.5, s2:0.8 },
+      { bw:21, f1:0.042, f2:0.100, a1: 8, a2:5,  s1:1.2, s2:1.7 },
+      { bw:23, f1:0.020, f2:0.058, a1: 9, a2:4,  s1:0.9, s2:1.3 },
+      { bw:27, f1:0.032, f2:0.075, a1:14, a2:7,  s1:1.1, s2:1.5 },
+      { bw:19, f1:0.016, f2:0.045, a1: 5, a2:3,  s1:0.6, s2:0.9 },
+      { bw:24, f1:0.025, f2:0.068, a1:10, a2:5,  s1:1.0, s2:1.4 },
+    ];
+    const FLAME_COLORS = [
+      { c:'#5A0F08', a:0.85 },
+      { c:'#8B1A10', a:0.80 },
+      { c:'#A03020', a:0.70 },
+      { c:'#C04A28', a:0.60 },
+      { c:'#DD6236', a:0.50 },
+      { c:'#F5C5A0', a:0.35 },
+      { c:'#FDE8D8', a:0.18 },
+    ];
+
+    class FlameBorder {
+      constructor(canvasEl, side) {
+        this.canvas = canvasEl;
+        this.ctx = canvasEl.getContext('2d');
+        this.side = side;
+        this.preset = FLAME_PRESETS[0];
+        this.frame = 0;
+        this.targetPreset = this.preset;
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+      }
+      resize() {
+        const dpr = window.devicePixelRatio || 1;
+        this.w = 50; this.h = window.innerHeight;
+        this.canvas.width = this.w * dpr;
+        this.canvas.height = this.h * dpr;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      setSlide(idx) {
+        this.targetPreset = FLAME_PRESETS[idx % FLAME_PRESETS.length];
+      }
+      lerp(a, b, t) { return a + (b - a) * t; }
+      noise(y, t, p) {
+        return Math.sin(y * p.f1 + t * p.s1) * p.a1
+             + Math.sin(y * p.f2 + t * p.s2 + 1.7) * p.a2
+             + Math.sin(y * 0.009 + t * 0.4) * 3;
+      }
+      render() {
+        const ctx = this.ctx, w = this.w, h = this.h;
+        const t = this.frame * 0.035;
+        const p = this.preset, tp = this.targetPreset;
+        if (p !== tp) {
+          const k = 0.06;
+          this.preset = {
+            bw: this.lerp(p.bw, tp.bw, k), f1: this.lerp(p.f1, tp.f1, k),
+            f2: this.lerp(p.f2, tp.f2, k), a1: this.lerp(p.a1, tp.a1, k),
+            a2: this.lerp(p.a2, tp.a2, k), s1: this.lerp(p.s1, tp.s1, k),
+            s2: this.lerp(p.s2, tp.s2, k),
+          };
+          const d = Math.abs(this.preset.bw - tp.bw);
+          if (d < 0.05) this.preset = tp;
+        }
+        const cp = this.preset;
+        ctx.clearRect(0, 0, w, h);
+        for (let li = 0; li < FLAME_COLORS.length; li++) {
+          const lc = FLAME_COLORS[li];
+          const wMult = 1.0 - li * 0.13;
+          ctx.beginPath();
+          if (this.side === 'left') {
+            ctx.moveTo(0, 0);
+            for (let y = 0; y <= h; y += 2) {
+              const n = this.noise(y, t, cp);
+              ctx.lineTo(Math.max(0, (cp.bw + n) * wMult), y);
+            }
+            ctx.lineTo(0, h);
+          } else {
+            ctx.moveTo(w, 0);
+            for (let y = 0; y <= h; y += 2) {
+              const n = this.noise(y, t, cp);
+              ctx.lineTo(Math.min(w, w - (cp.bw + n) * wMult), y);
+            }
+            ctx.lineTo(w, h);
+          }
+          ctx.closePath();
+          ctx.globalAlpha = lc.a;
+          ctx.fillStyle = lc.c;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        this.frame++;
+      }
+    }
+
+    const flameL = new FlameBorder(document.getElementById('flameLeft'), 'left');
+    const flameR = new FlameBorder(document.getElementById('flameRight'), 'right');
+
+    function animateFlames() {
+      flameL.render();
+      flameR.render();
+      requestAnimationFrame(animateFlames);
+    }
+    animateFlames();
+
+    /* ===================== SLIDE NAVIGATION ===================== */
+    const SLIDE_TITLES = [];
+    document.querySelectorAll('.slide').forEach(s => {
+      SLIDE_TITLES.push(s.getAttribute('data-nav-title') || '');
+    });
+
+    class SlidePresentation {
+      constructor() {
+        this.slides = document.querySelectorAll('.slide');
+        this.currentSlide = 0;
+        this.scrollLock = false;
+        this.touchStartY = 0;
+        this.setupIntersectionObserver();
+        this.setupKeyboardNav();
+        this.setupTouchNav();
+        this.setupWheelSnap();
+        this.setupProgressBar();
+        this.setupNavDots();
+      }
+      setupIntersectionObserver() {
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('visible');
+              const idx = Array.from(this.slides).indexOf(entry.target);
+              if (idx >= 0) {
+                this.currentSlide = idx;
+                flameL.setSlide(idx);
+                flameR.setSlide(idx);
+              }
+              this.updateNavDots();
+              this.updateProgressBar();
+            }
+          });
+        }, { threshold: 0.5 });
+        this.slides.forEach(slide => observer.observe(slide));
+      }
+      setupKeyboardNav() {
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); this.goTo(this.currentSlide + 1); }
+          else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); this.goTo(this.currentSlide - 1); }
+          else if (e.key === 'Home') { e.preventDefault(); this.goTo(0); }
+          else if (e.key === 'End') { e.preventDefault(); this.goTo(this.slides.length - 1); }
+        });
+      }
+      setupTouchNav() {
+        document.addEventListener('touchstart', (e) => { this.touchStartY = e.touches[0].clientY; }, { passive: true });
+        document.addEventListener('touchend', (e) => {
+          const diff = this.touchStartY - e.changedTouches[0].clientY;
+          if (Math.abs(diff) > 50) { diff > 0 ? this.goTo(this.currentSlide + 1) : this.goTo(this.currentSlide - 1); }
+        }, { passive: true });
+      }
+      setupWheelSnap() {
+        let acc = 0;
+        window.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          acc += e.deltaY;
+          if (Math.abs(acc) >= 60) { acc = 0; this.goTo(this.currentSlide + (e.deltaY > 0 ? 1 : -1)); }
+        }, { passive: false });
+      }
+      setupProgressBar() { this.progressBar = document.getElementById('progressBar'); }
+      updateProgressBar() { this.progressBar.style.width = ((this.currentSlide + 1) / this.slides.length * 100) + '%'; }
+      setupNavDots() {
+        const container = document.getElementById('navDots');
+        this.slides.forEach((_, i) => {
+          const item = document.createElement('div');
+          item.className = 'nav-item';
+          const dot = document.createElement('button');
+          dot.className = 'nav-dot';
+          dot.setAttribute('aria-label', SLIDE_TITLES[i]);
+          dot.addEventListener('click', () => this.goTo(i));
+          const label = document.createElement('span');
+          label.className = 'nav-label';
+          label.textContent = SLIDE_TITLES[i];
+          item.appendChild(label);
+          item.appendChild(dot);
+          container.appendChild(item);
+        });
+        this.dots = container.querySelectorAll('.nav-dot');
+        this.updateNavDots();
+      }
+      updateNavDots() { if (!this.dots) return; this.dots.forEach((d, i) => d.classList.toggle('active', i === this.currentSlide)); }
+      goTo(index) {
+        if (index < 0 || index >= this.slides.length || this.scrollLock) return;
+        this.scrollLock = true;
+        this.slides[index].scrollIntoView({ behavior: 'smooth' });
+        setTimeout(() => { this.scrollLock = false; }, 600);
+      }
+    }
+    const pres = new SlidePresentation();
+
+    /* ===================== FLAMME AVATAR ===================== */
+    const FC = {
+      red:  { outer:'#8B1A10', mid:'#C04A28', core:'#F5C5A0', hi:'#FDE8D8', dot:'#EEDDD8' },
+      blue: { outer:'#0A3A5C', mid:'#1A6A9C', core:'#A0D0F0', hi:'#D8F0FF', dot:'#D8E8F0' },
+    };
+    function initFlamme(canvasId, colorKey) {
+      const cv = document.getElementById(canvasId);
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      const PX = 20;
+      function px(x,y,c) { if(c){ctx.fillStyle=c;ctx.fillRect(Math.round(x)*PX,Math.round(y)*PX,PX,PX);} }
+      function fillRect(x,y,w,h,c) { for(let dy=0;dy<h;dy++) for(let dx=0;dx<w;dx++) px(x+dx,y+dy,c); }
+      const SLICES = {
+        outer:[[-12,1],[-11,2],[-10,3],[-9,5],[-8,6],[-7,7],[-6,7],[-5,8],[-4,8],[-3,8],[-2,8],[-1,8],[0,8],[1,8],[2,7],[3,7],[4,6],[5,5],[6,5]],
+        mid:[[-9,1],[-8,3],[-7,5],[-6,5],[-5,6],[-4,6],[-3,6],[-2,6],[-1,6],[0,6],[1,6],[2,5],[3,5],[4,3]],
+        core:[[-6,1],[-5,3],[-4,4],[-3,5],[-2,5],[-1,5],[0,5],[1,4],[2,3],[3,2]],
+        hi:[[-4,2],[-3,3],[-2,3],[-1,2]]
+      };
+      const CX=18,CY=18,C=FC[colorKey||'red'];
+      function drawFlame(f) {
+        ctx.fillStyle='#FDFBFA';ctx.fillRect(0,0,720,720);
+        ctx.fillStyle=C.dot;ctx.globalAlpha=0.3;
+        for(let y=0;y<720;y+=29)for(let x=0;x<720;x+=29)ctx.fillRect(x,y,2,2);
+        ctx.globalAlpha=1;
+        fillRect(CX-9,CY+6,19,3,'#654321');fillRect(CX-8,CY+6,17,1,'#7A5A35');
+        for(const key of['outer','mid','core','hi']){const color=C[key];for(const[dy,hw]of SLICES[key]){const fw=Math.round(Math.sin(f*0.08+dy*0.4)*0.6);for(let x=-(hw+fw);x<=(hw+fw);x++)px(CX+x,CY+dy,color);}}
+        fillRect(CX-3,CY-3,2,2,'#FFF');fillRect(CX+2,CY-3,2,2,'#FFF');
+        px(CX-2,CY-2,'#000');px(CX+3,CY-2,'#000');fillRect(CX-1,CY+1,3,1,'#333');
+      }
+      let frame=0;
+      (function loop(){drawFlame(frame++);requestAnimationFrame(loop);})();
+    }
+    initFlamme('flammeTitle');
+    initFlamme('flammeEnd');
+    initFlamme('flammeSearch', 'blue');
+    initFlamme('flammeLearn', 'red');
+  </script>
+</body>
+</html>
